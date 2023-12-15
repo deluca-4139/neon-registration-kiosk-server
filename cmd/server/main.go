@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 )
 
 var client = &http.Client{}
@@ -19,7 +20,12 @@ func landingPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func verifyRegistration(w http.ResponseWriter, r *http.Request) {
-	req, _ := http.NewRequest("GET", "https://api.neoncrm.com/v2/events", nil)
+	u, _ := url.Parse("https://api.neoncrm.com/v2/events")
+	q := u.Query()
+	q.Set("startDateAfter", "2023-11-01")
+	u.RawQuery = q.Encode()
+
+	req, _ := http.NewRequest("GET", u.String(), nil)
 	req.Header.Add("NEON-API-VERSION", "2.6")
 	auth_string := []byte(fmt.Sprintf("orgId:%v", neonKey))
 	encoded_auth := base64.StdEncoding.EncodeToString(auth_string)
