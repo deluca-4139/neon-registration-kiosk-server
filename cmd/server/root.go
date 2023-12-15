@@ -66,6 +66,7 @@ var rootCmd = &cobra.Command{
 		}))
 
 		r.Get("/", landingPage)
+		r.Get("/refresh", refreshEvent)
 		r.Get("/form.js", func(w http.ResponseWriter, r *http.Request) {
 			http.ServeFile(w, r, "web/static/form.js")
 		})

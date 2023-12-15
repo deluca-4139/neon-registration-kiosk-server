@@ -10,13 +10,13 @@ import (
 )
 
 type Event struct {
-	ID          int32  `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	StartDate   string `json:"startDate"`
-	StartTime   string `json:"startTime"`
-	EndDate     string `json:"endDate"`
-	EndTime     string `json:"endTime"`
+	ID   int32  `json:"id"`
+	Name string `json:"name"`
+	// Description string `json:"description"`
+	StartDate string `json:"startDate"`
+	StartTime string `json:"startTime"`
+	EndDate   string `json:"endDate"`
+	EndTime   string `json:"endTime"`
 }
 
 type Pagination struct {
@@ -42,11 +42,11 @@ func landingPage(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "web/static/landing.html")
 }
 
-func verifyRegistration(w http.ResponseWriter, r *http.Request) {
+func refreshEvent(w http.ResponseWriter, r *http.Request) {
 	u, _ := url.Parse("https://api.neoncrm.com/v2/events")
 	q := u.Query()
 	q.Set("startDateAfter", time.Now().Format(time.DateOnly))
-	q.Set("startDateBefore", time.Now().Add(time.Hour*24).Format(time.DateOnly))
+	// q.Set("startDateBefore", time.Now().Add(time.Hour*24).Format(time.DateOnly))
 	u.RawQuery = q.Encode()
 
 	req, _ := http.NewRequest("GET", u.String(), nil)
@@ -58,6 +58,7 @@ func verifyRegistration(w http.ResponseWriter, r *http.Request) {
 	resp, err := client.Do(req)
 
 	var msg EventRequest
+	var firstEvent Event
 	var decResp []byte
 
 	if err != nil {
@@ -66,10 +67,14 @@ func verifyRegistration(w http.ResponseWriter, r *http.Request) {
 		// do something to note non-200 response
 	} else {
 		json.NewDecoder(resp.Body).Decode(&msg)
-		decResp, _ = json.Marshal(msg)
-		fmt.Printf(string(decResp))
+		firstEvent = msg.Events[0] // TODO: what if there are more/less events?
+		decResp, _ = json.Marshal(firstEvent)
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(resp.StatusCode)
+		w.Write(decResp)
 	}
+}
 
-	w.WriteHeader(resp.StatusCode)
-	w.Write(decResp)
+func verifyRegistration(w http.ResponseWriter, r *http.Request) {
+
 }
