@@ -65,11 +65,12 @@ var rootCmd = &cobra.Command{
 			MaxAge:           300, // Maximum value not ignored by any of major browsers
 		}))
 
-		r.Get("/", landingPage)
+		// r.Get("/", landingPage)
+		// r.Get("/form.js", func(w http.ResponseWriter, r *http.Request) {
+		// 	http.ServeFile(w, r, "web/static/form.js")
+		// })
 		r.Get("/refresh", refreshEvent)
-		r.Get("/form.js", func(w http.ResponseWriter, r *http.Request) {
-			http.ServeFile(w, r, "web/static/form.js")
-		})
+		r.Post("/update", updateAttendees)
 		r.Post("/verify", verifyRegistration)
 
 		http.ListenAndServe(":3000", r)
