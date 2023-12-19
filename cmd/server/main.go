@@ -10,6 +10,19 @@ import (
 	"time"
 )
 
+type IDNamePair struct {
+	ID    string `json:"id"`
+	Value string `json:"value"`
+	Name  string `json:"name"`
+}
+
+type CustomField struct {
+	ID           string        `json:"id"`
+	Value        string        `json:"value"`
+	Name         string        `json:"name"`
+	OptionValues *[]IDNamePair `json:"optionValues"`
+}
+
 type Event struct {
 	ID   int32  `json:"id"`
 	Name string `json:"name"`
@@ -33,19 +46,14 @@ type EventRequest struct {
 }
 
 type EventAttendee struct {
-	AttendeeID int32  `json:"attendeeId"`
-	AccountID  string `json:"accountId"`
+	AttendeeID           int32         `json:"attendeeId"`
+	AccountID            string        `json:"accountId"`
+	AttendeeCustomFields []CustomField `json:"attendeeCustomFields"`
 }
 
 type EventAttendees struct {
 	Pagination Pagination      `json:"pagination"`
 	Attendees  []EventAttendee `json:"attendees"`
-}
-
-type CustomField struct {
-	ID    string `json:"id"`
-	Value string `json:"value"`
-	Name  string `json:"name"`
 }
 
 type IndividualAccount struct {
@@ -111,7 +119,12 @@ func refreshEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func updateAttendees(w http.ResponseWriter, r *http.Request) {
-	eventId := r.FormValue("eventId")
+	// TODO: sanitize input of attendees by
+	// upcasing ID values before putting
+	// into attendee map
+
+	// eventId := r.FormValue("eventId")
+	eventId := 23091
 
 	u, _ := url.Parse(fmt.Sprintf("https://api.neoncrm.com/v2/events/%v/attendees", eventId))
 	q := u.Query()
@@ -124,8 +137,31 @@ func updateAttendees(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(resp.Body).Decode(&msg)
 	fmt.Printf("Total number of predicted entries: %v\n", msg.Pagination.TotalResults)
 
+	// TODO: detect map collision?
 	for { // can also format as while msg.Attendees != null
 		for _, element := range msg.Attendees {
+
+			// // TODO: possibly useful for determining
+			// // guests and their ID info
+			// var value string
+			// var isMember bool
+			// for _, field := range element.AttendeeCustomFields {
+			// 	if field.ID == "91" {
+			// 		if field.OptionValues == nil {
+			// 			// TODO: fix error handling
+			// 			continue
+			// 		}
+			// 		isMember = (*field.OptionValues)[0].ID == "17" // 17 = member, 19 = guest
+			// 	}
+			// 	// TODO: ask 7 how the fuck we get license info
+			// 	// of guests when most people just put their
+			// 	// own member number in this field instead of
+			// 	// guest's ID information
+			// 	if field.ID == "92" {
+			// 		value = field.Value // this could in theory be LIC for guest...
+			// 	}
+			// }
+
 			member, _ := makeNeonRequest("GET", fmt.Sprintf("https://api.neoncrm.com/v2/accounts/%v", element.AccountID), nil)
 			var memberJson Account
 			json.NewDecoder(member.Body).Decode(&memberJson)
@@ -143,6 +179,14 @@ func updateAttendees(w http.ResponseWriter, r *http.Request) {
 				// actually a guest of another member?
 				// Will need to acquire more context
 				fmt.Printf("!!! ID NUMBER NOT FOUND !!! (account ID: %v)\n", element.AccountID)
+				for _, field := range element.AttendeeCustomFields {
+					fmt.Printf("%#v    ", field)
+					if field.OptionValues != nil {
+						fmt.Printf("%#v\n", *field.OptionValues)
+					} else {
+						fmt.Printf("\n")
+					}
+				}
 			}
 		}
 		if msg.Pagination.CurrentPage == msg.Pagination.TotalPages {
@@ -171,5 +215,33 @@ func updateAttendees(w http.ResponseWriter, r *http.Request) {
 }
 
 func verifyRegistration(w http.ResponseWriter, r *http.Request) {
-	// LIC := r.FormValue("LIC")
+	// TODO: business process/Neon query?
+	// When do we know license needs updating
+	// or waiver needs resigning?
+
+	LIC := r.FormValue("LIC")
+	DOB := r.FormValue("DOB")
+	expiry := r.FormValue("expiry")
+	origin := r.FormValue("origin")
+	fmt.Printf("Received LIC: %v\n", LIC)
+	fmt.Printf("Received DOB: %v\n", DOB)
+	fmt.Printf("Received expiry: %v\n", expiry)
+	fmt.Printf("Received origin: %v\n", origin)
+	fmt.Println(eventAttendeesMap)
+
+	// TODO: move the make() call of this map
+	// to the updateAttendees endpoint, and
+	// check to see if this map is nil prior
+	// to checking for the LIC key (and return
+	// an HTTP 503 or something)
+	_, exists := eventAttendeesMap[LIC]
+	fmt.Println(exists)
+
+	if exists {
+		// TODO: send PUT request to
+		// set markedAttended as true
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusNotFound)
+	}
 }
