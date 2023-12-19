@@ -124,7 +124,7 @@ func updateAttendees(w http.ResponseWriter, r *http.Request) {
 	// into attendee map
 
 	// eventId := r.FormValue("eventId")
-	eventId := 23091
+	eventId := 21491
 
 	u, _ := url.Parse(fmt.Sprintf("https://api.neoncrm.com/v2/events/%v/attendees", eventId))
 	q := u.Query()
@@ -219,23 +219,65 @@ func verifyRegistration(w http.ResponseWriter, r *http.Request) {
 	// When do we know license needs updating
 	// or waiver needs resigning?
 
-	LIC := r.FormValue("LIC")
-	DOB := r.FormValue("DOB")
-	expiry := r.FormValue("expiry")
-	origin := r.FormValue("origin")
-	fmt.Printf("Received LIC: %v\n", LIC)
-	fmt.Printf("Received DOB: %v\n", DOB)
-	fmt.Printf("Received expiry: %v\n", expiry)
-	fmt.Printf("Received origin: %v\n", origin)
-	fmt.Println(eventAttendeesMap)
+	// Gather all form values
+	// from received request
+	licJson := r.FormValue("LIC")
+	dobJson := r.FormValue("DOB")
+	expiryJson := r.FormValue("expiry")
+	originJson := r.FormValue("origin")
+
+	// Format of expiry and DOB on
+	// license differs depending
+	// on country of origin
+	var timeLayout string
+	if originJson == "USA" {
+		timeLayout = "01022006"
+	} else {
+		timeLayout = "20060102"
+	}
+
+	dobParsed, _ := time.Parse(timeLayout, dobJson)
+	yearsSinceBirthYear := time.Now().Year() - dobParsed.Year()
+
+	// TODO: factor into own function
+	isUnderage := false
+	if yearsSinceBirthYear < 18 {
+		isUnderage = true
+	} else if yearsSinceBirthYear == 18 {
+		monthsSinceBirthMonth := time.Now().Month() - dobParsed.Month()
+		if monthsSinceBirthMonth < 0 {
+			isUnderage = true
+		} else if monthsSinceBirthMonth == 0 {
+			daysSinceBirthDay := time.Now().Day() - dobParsed.Day()
+			if daysSinceBirthDay < 0 {
+				isUnderage = true
+			}
+		}
+	}
+	if isUnderage {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("underage"))
+		return
+	}
+
+	expiryParsed, _ := time.Parse(timeLayout, expiryJson)
+	untilExpiry := time.Until(expiryParsed)
+
+	if untilExpiry < 0 {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte("expired"))
+		return
+	}
+
+	// If we're here, the cardholder is
+	// of age and the ID is unexpired
 
 	// TODO: move the make() call of this map
 	// to the updateAttendees endpoint, and
 	// check to see if this map is nil prior
 	// to checking for the LIC key (and return
 	// an HTTP 503 or something)
-	_, exists := eventAttendeesMap[LIC]
-	fmt.Println(exists)
+	_, exists := eventAttendeesMap[licJson]
 
 	if exists {
 		// TODO: send PUT request to
