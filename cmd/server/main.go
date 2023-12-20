@@ -70,19 +70,20 @@ type AttendanceStatus struct {
 	Capacity   int    `json:"capacity"`
 	Registered int    `json:"registered"`
 	database   map[string]string
+	checkedIn  map[string]struct{}
 }
 
 type RegistrationStatus struct {
-	Party           string                      `json:"party"`
-	EventAttendance map[string]AttendanceStatus `json:"eventAttendance"`
+	Party           string                       `json:"party"`
+	EventAttendance map[string]*AttendanceStatus `json:"eventAttendance"`
 }
 
 var client = &http.Client{}
 
-var eventAttendanceDatabase map[string]AttendanceStatus
+var eventAttendanceDatabase map[string]*AttendanceStatus
 
 func main() {
-	eventAttendanceDatabase = make(map[string]AttendanceStatus)
+	eventAttendanceDatabase = make(map[string]*AttendanceStatus)
 	rootCmd.Execute()
 }
 
@@ -223,11 +224,12 @@ func addEvent(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Total number of processed attendees: %v\n", len(eventAttendeesMap))
 	fmt.Println(eventAttendeesMap)
 
-	eventAttendanceDatabase[eventId] = AttendanceStatus{
+	eventAttendanceDatabase[eventId] = &AttendanceStatus{
 		Name:       eventName,
 		Capacity:   len(eventAttendeesMap),
 		Registered: 0, // TODO: fix
 		database:   eventAttendeesMap,
+		checkedIn:  make(map[string]struct{}),
 	}
 
 	eventResponse, _ := json.Marshal(eventAttendanceDatabase)
@@ -304,6 +306,8 @@ func verifyRegistration(w http.ResponseWriter, r *http.Request) {
 		if inMap {
 			exists = true
 			event = id
+			eventStatus.checkedIn[licJson] = struct{}{}
+			eventStatus.Registered = len(eventAttendanceDatabase[event].checkedIn)
 		}
 	}
 
@@ -311,7 +315,6 @@ func verifyRegistration(w http.ResponseWriter, r *http.Request) {
 		// TODO: send PUT request to
 		// set markedAttended as true
 
-		//TODO: locally track registered attendees
 		regStat := RegistrationStatus{
 			Party:           event,
 			EventAttendance: eventAttendanceDatabase,
