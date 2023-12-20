@@ -70,7 +70,7 @@ var rootCmd = &cobra.Command{
 		// 	http.ServeFile(w, r, "web/static/form.js")
 		// })
 		r.Get("/refresh", refreshEvent)
-		r.Post("/update", updateAttendees)
+		r.Post("/addEvent", addEvent)
 		r.Post("/verify", verifyRegistration)
 
 		http.ListenAndServe(":3000", r)

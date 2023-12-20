@@ -65,12 +65,24 @@ type Account struct {
 	IndividualAccount IndividualAccount `json:"individualAccount"`
 }
 
+type AttendanceStatus struct {
+	Name       string `json:"name"`
+	Capacity   int    `json:"capacity"`
+	Registered int    `json:"registered"`
+	database   map[string]string
+}
+
+type RegistrationStatus struct {
+	Party           string                      `json:"party"`
+	EventAttendance map[string]AttendanceStatus `json:"eventAttendance"`
+}
+
 var client = &http.Client{}
 
-var eventAttendeesMap map[string]string
+var eventAttendanceDatabase map[string]AttendanceStatus
 
 func main() {
-	eventAttendeesMap = make(map[string]string)
+	eventAttendanceDatabase = make(map[string]AttendanceStatus)
 	rootCmd.Execute()
 }
 
@@ -94,14 +106,16 @@ func makeNeonRequest(method string, url string, body io.Reader) (*http.Response,
 func refreshEvent(w http.ResponseWriter, r *http.Request) {
 	u, _ := url.Parse("https://api.neoncrm.com/v2/events")
 	q := u.Query()
-	q.Set("startDateAfter", time.Now().Format(time.DateOnly))
-	// q.Set("startDateBefore", time.Now().Add(time.Hour*24).Format(time.DateOnly))
+	// Subtracting a day just to fuzz the numbers
+	// in case for some reason it doesn't want to
+	// give us the events that are occurring today
+	q.Set("startDateAfter", time.Now().Add(-time.Hour*24).Format(time.DateOnly))
+	q.Set("startDateBefore", time.Now().Add(time.Hour*24*7).Format(time.DateOnly)) // TODO: these values should not be magic
 	u.RawQuery = q.Encode()
 
 	resp, err := makeNeonRequest("GET", u.String(), nil)
 
 	var msg EventRequest
-	var firstEvent Event
 	var decResp []byte
 
 	if err != nil {
@@ -110,21 +124,20 @@ func refreshEvent(w http.ResponseWriter, r *http.Request) {
 		// do something to note non-200 response
 	} else {
 		json.NewDecoder(resp.Body).Decode(&msg)
-		firstEvent = msg.Events[0] // TODO: what if there are more/less events?
-		decResp, _ = json.Marshal(firstEvent)
+		decResp, _ = json.Marshal(msg.Events)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
 		w.Write(decResp)
 	}
 }
 
-func updateAttendees(w http.ResponseWriter, r *http.Request) {
+func addEvent(w http.ResponseWriter, r *http.Request) {
 	// TODO: sanitize input of attendees by
 	// upcasing ID values before putting
 	// into attendee map
 
-	// eventId := r.FormValue("eventId")
-	eventId := 21491
+	eventId := r.FormValue("eventId")
+	eventName := r.FormValue("eventName")
 
 	u, _ := url.Parse(fmt.Sprintf("https://api.neoncrm.com/v2/events/%v/attendees", eventId))
 	q := u.Query()
@@ -133,6 +146,7 @@ func updateAttendees(w http.ResponseWriter, r *http.Request) {
 	resp, _ := makeNeonRequest("GET", u.String(), nil)
 
 	var msg EventAttendees
+	eventAttendeesMap := make(map[string]string)
 
 	json.NewDecoder(resp.Body).Decode(&msg)
 	fmt.Printf("Total number of predicted entries: %v\n", msg.Pagination.TotalResults)
@@ -207,17 +221,28 @@ func updateAttendees(w http.ResponseWriter, r *http.Request) {
 	// match given totalResults value (even
 	// when missing IDs are added in)
 	fmt.Printf("Total number of processed attendees: %v\n", len(eventAttendeesMap))
+	fmt.Println(eventAttendeesMap)
 
-	body, _ := io.ReadAll(resp.Body)
+	eventAttendanceDatabase[eventId] = AttendanceStatus{
+		Name:       eventName,
+		Capacity:   len(eventAttendeesMap),
+		Registered: 0, // TODO: fix
+		database:   eventAttendeesMap,
+	}
 
-	w.WriteHeader(resp.StatusCode)
-	w.Write(body)
+	eventResponse, _ := json.Marshal(eventAttendanceDatabase)
+	w.WriteHeader(http.StatusCreated)
+	w.Write(eventResponse)
 }
 
 func verifyRegistration(w http.ResponseWriter, r *http.Request) {
 	// TODO: business process/Neon query?
 	// When do we know license needs updating
 	// or waiver needs resigning?
+
+	// TODO: check to see if len(eventMap)
+	// is 0 prior to checking for the LIC key
+	// (and return an HTTP 503 or something)
 
 	// Gather all form values
 	// from received request
@@ -272,17 +297,28 @@ func verifyRegistration(w http.ResponseWriter, r *http.Request) {
 	// If we're here, the cardholder is
 	// of age and the ID is unexpired
 
-	// TODO: move the make() call of this map
-	// to the updateAttendees endpoint, and
-	// check to see if this map is nil prior
-	// to checking for the LIC key (and return
-	// an HTTP 503 or something)
-	_, exists := eventAttendeesMap[licJson]
+	var exists bool
+	var event string
+	for id, eventStatus := range eventAttendanceDatabase {
+		_, inMap := eventStatus.database[licJson]
+		if inMap {
+			exists = true
+			event = id
+		}
+	}
 
 	if exists {
 		// TODO: send PUT request to
 		// set markedAttended as true
+
+		//TODO: locally track registered attendees
+		regStat := RegistrationStatus{
+			Party:           event,
+			EventAttendance: eventAttendanceDatabase,
+		}
+		response, _ := json.Marshal(regStat)
 		w.WriteHeader(http.StatusOK)
+		w.Write(response)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
 	}
