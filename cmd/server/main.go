@@ -73,14 +73,21 @@ type AttendanceStatus struct {
 	checkedIn  map[string]struct{}
 }
 
-type RegistrationStatus struct {
-	Party           string                       `json:"party"`
-	EventAttendance map[string]*AttendanceStatus `json:"eventAttendance"`
+type ServerStatus struct {
+	Response string `json:"response,omitempty"`
+	// TODO: do I really need to omitempty these?
+	// ETA: if I change this, I'll need to
+	// change the logic on the frontend to
+	// not look for undefined when receiving
+	// server status response
+	ListedEvents    []Event                      `json:"listedEvents,omitempty"`
+	EventAttendance map[string]*AttendanceStatus `json:"eventAttendance,omitempty"`
 }
 
 var client = &http.Client{}
 
 var eventAttendanceDatabase map[string]*AttendanceStatus
+var currentlyListedEvents []Event
 
 func main() {
 	eventAttendanceDatabase = make(map[string]*AttendanceStatus)
@@ -104,6 +111,15 @@ func makeNeonRequest(method string, url string, body io.Reader) (*http.Response,
 	return client.Do(req)
 }
 
+func getServerStatus(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	resp, _ := json.Marshal(ServerStatus{
+		EventAttendance: eventAttendanceDatabase,
+		ListedEvents:    currentlyListedEvents,
+	})
+	w.Write(resp)
+}
+
 func refreshEvent(w http.ResponseWriter, r *http.Request) {
 	u, _ := url.Parse("https://api.neoncrm.com/v2/events")
 	q := u.Query()
@@ -125,7 +141,13 @@ func refreshEvent(w http.ResponseWriter, r *http.Request) {
 		// do something to note non-200 response
 	} else {
 		json.NewDecoder(resp.Body).Decode(&msg)
-		decResp, _ = json.Marshal(msg.Events)
+		currentlyListedEvents = msg.Events
+
+		decResp, _ = json.Marshal(ServerStatus{
+			EventAttendance: eventAttendanceDatabase,
+			ListedEvents:    currentlyListedEvents,
+		})
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
 		w.Write(decResp)
@@ -136,6 +158,11 @@ func addEvent(w http.ResponseWriter, r *http.Request) {
 	// TODO: sanitize input of attendees by
 	// upcasing ID values before putting
 	// into attendee map
+
+	// TODO: check for markedAttended true
+	// before adding to map? to make sure
+	// that if we have to restart from crash
+	// we have up-to-date attendance info
 
 	eventId := r.FormValue("eventId")
 	eventName := r.FormValue("eventName")
@@ -227,12 +254,16 @@ func addEvent(w http.ResponseWriter, r *http.Request) {
 	eventAttendanceDatabase[eventId] = &AttendanceStatus{
 		Name:       eventName,
 		Capacity:   len(eventAttendeesMap),
-		Registered: 0, // TODO: fix
+		Registered: 0,
 		database:   eventAttendeesMap,
 		checkedIn:  make(map[string]struct{}),
 	}
 
-	eventResponse, _ := json.Marshal(eventAttendanceDatabase)
+	eventResponse, _ := json.Marshal(ServerStatus{
+		EventAttendance: eventAttendanceDatabase,
+		ListedEvents:    currentlyListedEvents,
+	})
+
 	w.WriteHeader(http.StatusCreated)
 	w.Write(eventResponse)
 }
@@ -245,6 +276,8 @@ func verifyRegistration(w http.ResponseWriter, r *http.Request) {
 	// TODO: check to see if len(eventMap)
 	// is 0 prior to checking for the LIC key
 	// (and return an HTTP 503 or something)
+
+	// TODO: log registrations!
 
 	// Gather all form values
 	// from received request
@@ -283,7 +316,12 @@ func verifyRegistration(w http.ResponseWriter, r *http.Request) {
 	}
 	if isUnderage {
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte("underage"))
+		resp, _ := json.Marshal(ServerStatus{
+			Response:        "underage",
+			EventAttendance: eventAttendanceDatabase,
+			ListedEvents:    currentlyListedEvents,
+		})
+		w.Write(resp)
 		return
 	}
 
@@ -292,7 +330,12 @@ func verifyRegistration(w http.ResponseWriter, r *http.Request) {
 
 	if untilExpiry < 0 {
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte("expired"))
+		resp, _ := json.Marshal(ServerStatus{
+			Response:        "expired",
+			EventAttendance: eventAttendanceDatabase,
+			ListedEvents:    currentlyListedEvents,
+		})
+		w.Write(resp)
 		return
 	}
 
@@ -311,18 +354,19 @@ func verifyRegistration(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	regStat := ServerStatus{
+		EventAttendance: eventAttendanceDatabase,
+		ListedEvents:    currentlyListedEvents,
+	}
+
 	if exists {
 		// TODO: send PUT request to
 		// set markedAttended as true
-
-		regStat := RegistrationStatus{
-			Party:           event,
-			EventAttendance: eventAttendanceDatabase,
-		}
-		response, _ := json.Marshal(regStat)
+		regStat.Response = event // maybe needs to be a pointer?
 		w.WriteHeader(http.StatusOK)
-		w.Write(response)
 	} else {
 		w.WriteHeader(http.StatusNotFound)
 	}
+	response, _ := json.Marshal(regStat)
+	w.Write(response)
 }
