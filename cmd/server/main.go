@@ -99,10 +99,19 @@ func main() {
 // 	http.ServeFile(w, r, "web/static/landing.html")
 // }
 
+// makeNeonRequest is a helper function to make an HTTP request to Neon.
+// It takes in an HTTP method, a url string to call the method on, and
+// a body for POST/PUT requests. It prepares the request by adding the
+// proper Neon headers and encoding the required HTTP basic authorization
+// information that is stored in the Viper configuration.
+//
+// Because client.Do() returns an http.Response and an error, this function
+// returns both of those back out to the function that called it.
 func makeNeonRequest(method string, url string, body io.Reader) (*http.Response, error) {
 	req, _ := http.NewRequest(method, url, body)
 	req.Header.Add("NEON-API-VERSION", "2.6")
-	auth_string := []byte(fmt.Sprintf("ordId:%v", neonKey))
+	auth_string := []byte(fmt.Sprintf("orgId:%v", neonKey)) // TODO: replace ordId with env var
+
 	encoded_auth := base64.StdEncoding.EncodeToString(auth_string)
 
 	req.Header.Set("Accept", "application/json")
@@ -111,6 +120,10 @@ func makeNeonRequest(method string, url string, body io.Reader) (*http.Response,
 	return client.Do(req)
 }
 
+// getServerStatus is an endpoint on the server that, as the name suggests,
+// writes the current status of the server to w. This is of type ServerStatus,
+// which contains information about current event registrations; all responses
+// to requests should be of this type. See that type's docs for more info.
 func getServerStatus(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	resp, _ := json.Marshal(ServerStatus{
@@ -120,7 +133,13 @@ func getServerStatus(w http.ResponseWriter, r *http.Request) {
 	w.Write(resp)
 }
 
-func refreshEvent(w http.ResponseWriter, r *http.Request) {
+// refreshEvents is an endpoint that fetches upcoming events, updates the
+// server's internal status to store the found events, and writes the current
+// status to the ResponseWriter w. At the moment, the function fetches the
+// events that are occuring from yesterday to a week from now, which I am sure
+// I will fix to be non-magic (i.e. able to be changed via Viper config, or
+// perhaps the HTTP request itself?) at some point.
+func refreshEvents(w http.ResponseWriter, r *http.Request) {
 	u, _ := url.Parse("https://api.neoncrm.com/v2/events")
 	q := u.Query()
 	// Subtracting a day just to fuzz the numbers
@@ -154,6 +173,21 @@ func refreshEvent(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// addEvent is an endpoint that adds a specific event to the internal
+// list of "tracked" events that the server is doing registration for.
+// It expects that the request will have a FormData in its body that
+// contains an eventId string (the ID integer of the Neon event to be
+// added) and an eventName string (the front-facing name of the Neon
+// event; purely cosmetic).
+//
+// When it retrieves the information about the Neon event, it loops
+// through the attendees to construct a map of event attendees, which
+// it then adds to the eventAttendanceDatabase by creating a new
+// AttendanceStatus instance with default values to start tracking
+// event attendance with.
+//
+// The response to the request is, as with all other endpoints,
+// the status of the server in the shape of a ServerStatus object.
 func addEvent(w http.ResponseWriter, r *http.Request) {
 	// TODO: sanitize input of attendees by
 	// upcasing ID values before putting
@@ -163,6 +197,18 @@ func addEvent(w http.ResponseWriter, r *http.Request) {
 	// before adding to map? to make sure
 	// that if we have to restart from crash
 	// we have up-to-date attendance info
+	// ETA: above is moot if we log registrations!
+	// Then we can just restore from log rather
+	// than perform whole request process all
+	// over again. Though, it is still a good
+	// idea to do said process to make sure
+	// registration info has not changed since
+	// log was created/populated.
+
+	// TODO: a lot of the logic in this is magic
+	// insofar as it expects that specific field
+	// IDs aren't necessarily consistent across
+	// Neon instances; fix somehow?
 
 	eventId := r.FormValue("eventId")
 	eventName := r.FormValue("eventName")
@@ -268,6 +314,18 @@ func addEvent(w http.ResponseWriter, r *http.Request) {
 	w.Write(eventResponse)
 }
 
+// verifyRegistration is an endpoint that takes in attendee info
+// from the frontend and, using the stored registration information
+// on the server, verifies whether or not the attendee is registered
+// to attend the relevant event. It expects that r will be populated
+// with FormValues relative to the license information of the attendee,
+// namely the LIC#, date of birth, expiry, and country of origin.
+//
+// In its response w to the request, it returns HTTP 200 if the
+// attendee's information is valid and they are registered for the
+// event, or an HTTP 403 if the attendee's registration information
+// is invalid for any reason. It returns HTTP 404 if the attendee
+// is not registered for the relevant event.
 func verifyRegistration(w http.ResponseWriter, r *http.Request) {
 	// TODO: business process/Neon query?
 	// When do we know license needs updating

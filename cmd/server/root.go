@@ -69,7 +69,7 @@ var rootCmd = &cobra.Command{
 		// r.Get("/form.js", func(w http.ResponseWriter, r *http.Request) {
 		// 	http.ServeFile(w, r, "web/static/form.js")
 		// })
-		r.Get("/refresh", refreshEvent)
+		r.Get("/refresh", refreshEvents)
 		r.Get("/serverStatus", getServerStatus)
 		r.Post("/addEvent", addEvent)
 		r.Post("/verify", verifyRegistration)
