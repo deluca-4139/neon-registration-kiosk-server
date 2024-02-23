@@ -110,7 +110,7 @@ func main() {
 func makeNeonRequest(method string, url string, body io.Reader) (*http.Response, error) {
 	req, _ := http.NewRequest(method, url, body)
 	req.Header.Add("NEON-API-VERSION", "2.6")
-	auth_string := []byte(fmt.Sprintf("orgId:%v", neonKey)) // TODO: replace ordId with env var
+	auth_string := []byte(fmt.Sprintf("%v:%v", orgId, neonKey))
 
 	encoded_auth := base64.StdEncoding.EncodeToString(auth_string)
 

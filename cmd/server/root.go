@@ -13,11 +13,13 @@ import (
 	"github.com/spf13/viper"
 )
 
-var neonKey, cfgFile string
+var orgId, neonKey, cfgFile string
 
 func init() {
 	cobra.OnInitialize(initConfig)
+	rootCmd.PersistentFlags().StringVar(&orgId, "orgid", "", "Organization ID; used as the 'username' for Neon requests")
 	rootCmd.PersistentFlags().StringVar(&neonKey, "neonkey", "", "API key for making requests to Neon CRM backend")
+	viper.BindPFlag("orgid", rootCmd.PersistentFlags().Lookup("orgid"))
 	viper.BindPFlag("neonkey", rootCmd.PersistentFlags().Lookup("neonkey"))
 }
 
@@ -48,8 +50,9 @@ func initConfig() {
 
 var rootCmd = &cobra.Command{
 	Use:   "server",
-	Short: "Backend for automated CSPC registration",
+	Short: "Backend for automated Neon CRM event registration",
 	Run: func(cmd *cobra.Command, args []string) {
+		orgId = viper.Get("orgId").(string)
 		neonKey = viper.Get("neonkey").(string)
 		r := chi.NewRouter()
 
